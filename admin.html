@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin Dashboard — Student-Teacher Booking</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body { font-family: Arial, sans-serif; background:#f8f9fa; margin:0; padding:0; }
+    .container { max-width: 1000px; margin: 0 auto; padding: 20px; }
+    header { display:flex; justify-content: space-between; align-items:center; margin-bottom:20px; }
+    h1 { margin:0; }
+    .card { background:white; padding:20px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.1); margin-bottom:20px; }
+    .list { max-height:300px; overflow-y:auto; border:1px solid #ddd; border-radius:4px; padding:10px; }
+    .item { padding:10px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; }
+    .info { flex:1; }
+    button { padding:6px 12px; border:none; border-radius:4px; cursor:pointer; margin-left:5px; }
+    .btn-approve { background:#28a745; color:white; }
+    .btn-reject { background:#dc3545; color:white; }
+    .btn-edit { background:#ffc107; color:black; }
+    .btn-delete { background:#6c757d; color:white; }
+    .btn-approve:hover { background:#218838; }
+    .btn-reject:hover { background:#c82333; }
+    .btn-edit:hover { background:#e0a800; }
+    .btn-delete:hover { background:#5a6268; }
+    form { display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap; }
+    input { padding:8px; border:1px solid #ccc; border-radius:4px; }
+    label.small { font-size:0.9rem; color:#666; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>Admin Dashboard</h1>
+      <div>
+        <button id="btn-logout">Logout</button>
+      </div>
+    </header>
+
+    <!-- Teacher Management -->
+    <div class="card">
+      <h2>Manage Teachers</h2>
+      <form id="teacher-form">
+        <input id="t-name" placeholder="Name" required />
+        <input id="t-email" placeholder="Email (optional)" />
+        <input id="t-dept" placeholder="Department" />
+        <input id="t-subject" placeholder="Subject" />
+        <button type="submit">Add Teacher</button>
+      </form>
+      <div id="teachers-list" class="list"></div>
+    </div>
+
+    <!-- Pending Registrations -->
+    <div class="card">
+      <h2>Pending Registrations</h2>
+      <div id="pending-list" class="list"></div>
+    </div>
+
+    <!-- Approved Users -->
+    <div class="card">
+      <h2>Approved Users</h2>
+      <div id="approved-list" class="list"></div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+    import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+    import {
+      getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
+    // <-- Replace with your Firebase config (kept same as your project) -->
+    const firebaseConfig = {
+      apiKey: "AIzaSyBBhGPM46kUg1exY-000CttB8cjAegeCaQ",
+      authDomain: "guruvandan-d4dc0.firebaseapp.com",
+      projectId: "guruvandan-d4dc0",
+      storageBucket: "guruvandan-d4dc0.firebasestorage.app",
+      messagingSenderId: "547247846451",
+      appId: "1:547247846451:web:9bf630619fe89e5d21df46",
+      measurementId: "G-5DT4H1SK83"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    const teacherForm = document.getElementById("teacher-form");
+    const teachersList = document.getElementById("teachers-list");
+    const pendingList = document.getElementById("pending-list");
+    const approvedList = document.getElementById("approved-list");
+
+    let currentAdminUid = null;
+
+    // Auth check + admin verification
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        console.warn("No user logged in — redirecting to login.");
+        location.href = "index.html";
+        return;
+      }
+      currentAdminUid = user.uid;
+      console.log("Signed-in user:", user.email, user.uid);
+
+      // verify role in users collection (must be admin)
+      try {
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (!userDoc.exists()) {
+          alert("Your user record is not found in Firestore. Create an admin record first.");
+          console.error("No user doc for", user.uid);
+          return;
+        }
+        const ud = userDoc.data();
+        if (ud.role !== "admin") {
+          alert("Access denied. You are not an admin.");
+          console.error("Not admin:", ud);
+          location.href = "index.html";
+          return;
+        }
+
+        // OK — load data
+        loadTeachers();
+        loadUsers();
+      } catch (err) {
+        console.error("Error checking admin role:", err);
+        alert("Error checking admin role: " + err.message);
+      }
+    });
+
+    // logout
+    document.getElementById("btn-logout").addEventListener("click", async () => {
+      try {
+        await signOut(auth);
+        location.href = "index.html";
+      } catch (err) {
+        console.error("Sign out error:", err);
+      }
+    });
+
+    // ---------------- Teachers CRUD (in users collection as role: 'teacher') ----------------
+    async function loadTeachers() {
+      teachersList.innerHTML = "";
+      try {
+        const snap = await getDocs(collection(db, "users"));
+        snap.forEach(docSnap => {
+          const u = docSnap.data();
+          if (u.role === "teacher") {
+            const id = docSnap.id;
+            const div = document.createElement("div");
+            div.className = "item";
+            div.innerHTML = `
+              <div class="info">
+                <strong>${u.name}</strong> — ${u.department || "N/A"} (${u.subject || "N/A"})<br>
+                <small>${u.email || ""}</small>
+              </div>
+              <div>
+                <button class="btn-edit">Edit</button>
+                <button class="btn-delete">Delete</button>
+              </div>
+            `;
+
+            // Edit handler
+            div.querySelector(".btn-edit").addEventListener("click", async () => {
+              try {
+                const newName = prompt("Teacher name:", u.name) || u.name;
+                const newDept = prompt("Department:", u.department || "") || u.department || "";
+                const newSubject = prompt("Subject:", u.subject || "") || u.subject || "";
+                await updateDoc(doc(db, "users", id), {
+                  name: newName,
+                  department: newDept,
+                  subject: newSubject,
+                  updatedAt: serverTimestamp()
+                });
+                alert("Teacher updated.");
+                loadTeachers();
+                loadUsers(); // refresh lists if needed
+              } catch (err) {
+                console.error("Error updating teacher:", err);
+                alert("Error updating teacher: " + err.message);
+              }
+            });
+
+            // Delete handler
+            div.querySelector(".btn-delete").addEventListener("click", async () => {
+              if (!confirm("Delete this teacher (this will remove the Firestore record)?")) return;
+              try {
+                await deleteDoc(doc(db, "users", id));
+                alert("Teacher deleted.");
+                loadTeachers();
+                loadUsers();
+              } catch (err) {
+                console.error("Error deleting teacher:", err);
+                alert("Error deleting teacher: " + err.message);
+              }
+            });
+
+            teachersList.appendChild(div);
+          }
+        });
+      } catch (err) {
+        console.error("Error loading teachers:", err);
+        alert("Error loading teachers: " + err.message);
+      }
+    }
+
+    teacherForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = document.getElementById("t-name").value.trim();
+      const email = document.getElementById("t-email").value.trim();
+      const dept = document.getElementById("t-dept").value.trim();
+      const subject = document.getElementById("t-subject").value.trim();
+      if (!name) return alert("Name is required");
+
+      try {
+        const payload = {
+          name,
+          email: email || "",
+          role: "teacher",
+          department: dept || "",
+          subject: subject || "",
+          approved: true,
+          createdBy: currentAdminUid,
+          createdAt: serverTimestamp()
+        };
+        await addDoc(collection(db, "users"), payload);
+        alert("Teacher added successfully.");
+        e.target.reset();
+        loadTeachers();
+        loadUsers();
+      } catch (err) {
+        console.error("Error adding teacher:", err);
+        alert("Error adding teacher: " + err.message);
+      }
+    });
+
+    // ---------------- Users (pending / approved) ----------------
+    async function loadUsers() {
+      pendingList.innerHTML = "";
+      approvedList.innerHTML = "";
+
+      try {
+        const snap = await getDocs(collection(db, "users"));
+        snap.forEach(docSnap => {
+          const u = docSnap.data();
+          const id = docSnap.id;
+          const div = document.createElement("div");
+          div.className = "item";
+         div.innerHTML = `
+  <div class="user-info">
+    <strong>${u.name || "Unnamed User"}</strong> (${u.role || "Unknown Role"}) <br>
+    <small>${u.email || "No email"}</small>
+  </div>
+`;
+
+
+          if (u.approved === false || u.approved === undefined) {
+            // pending
+            const btnApprove = document.createElement("button");
+            btnApprove.className = "btn-approve";
+            btnApprove.textContent = "Approve";
+            btnApprove.addEventListener("click", async () => {
+              try {
+                await updateDoc(doc(db, "users", id), { approved: true, approvedBy: currentAdminUid, approvedAt: serverTimestamp() });
+                alert("User approved.");
+                loadUsers();
+                loadTeachers(); // in case they are a teacher
+              } catch (err) {
+                console.error("Approve error:", err);
+                alert("Error approving user: " + err.message);
+              }
+            });
+
+            const btnReject = document.createElement("button");
+            btnReject.className = "btn-reject";
+            btnReject.textContent = "Reject";
+            btnReject.addEventListener("click", async () => {
+              if (!confirm("Reject & delete this user?")) return;
+              try {
+                await deleteDoc(doc(db, "users", id));
+                alert("User rejected & deleted.");
+                loadUsers();
+                loadTeachers();
+              } catch (err) {
+                console.error("Reject error:", err);
+                alert("Error rejecting user: " + err.message);
+              }
+            });
+
+            div.appendChild(btnApprove);
+            div.appendChild(btnReject);
+            pendingList.appendChild(div);
+          } else {
+            approvedList.appendChild(div);
+          }
+        });
+      } catch (err) {
+        console.error("Error loading users:", err);
+        alert("Error loading users: " + err.message);
+      }
+    }
+  </script>
+</body>
+</html>

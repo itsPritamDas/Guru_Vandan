@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Student-Teacher Booking — Landing</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1 class="fancy-title">Student-Teacher Booking Appointment</h1>
+      <div class="guru-mantra">
+        <p>Gurur Brahma Gurur Vishnu</p>
+        <p>Gurur Devo Mahesh Varah</p>
+        <p>Guru Shakshat Para Brahma</p>
+        <p>Tasmai Shri Guruve Namah</p>
+      </div>
+    </header>
+
+    <section class="card auth-card">
+      <!-- LOGIN FORM -->
+      <div id="login-panel">
+        <h2>Login</h2>
+        <form id="login-form">
+          <label>Email
+            <input type="email" id="login-email" required />
+          </label>
+          <label>Password
+            <input type="password" id="login-password" required />
+          </label>
+          <label>Role
+            <select id="login-role" required>
+              <option value="student">Student</option>
+              <option value="teacher">Teacher</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+          <div class="form-actions">
+            <button type="submit">Login</button>
+          </div>
+        </form>
+        <p class="switch-link">
+          Don’t have an account? <a href="#" id="show-register">Register here</a>
+        </p>
+      </div>
+
+      <!-- REGISTER FORM -->
+      <div id="register-panel" class="hidden">
+        <h2>Register</h2>
+        <form id="register-form">
+          <label>Full Name
+            <input id="reg-name" required />
+          </label>
+          <label>Email
+            <input type="email" id="reg-email" required />
+          </label>
+          <label>Password
+            <input type="password" id="reg-password" required />
+          </label>
+          <label>Role
+            <select id="reg-role" required>
+              <option value="student">Student</option>
+              <option value="teacher">Teacher</option>
+            </select>
+          </label>
+          <label>Department
+            <input id="reg-dept" />
+          </label>
+          <div class="form-actions">
+            <button type="submit">Register</button>
+          </div>
+        </form>
+        <p class="switch-link">
+          Already have an account? <a href="#" id="show-login">Login here</a>
+        </p>
+      </div>
+    </section>
+
+    <footer class="muted">
+      Built with HTML/CSS/JS — @Pritam_Das_2025.
+    </footer>
+  </main>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
+    import { getFirestore, setDoc, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+
+    // 👉 Replace this config with YOUR Firebase project config
+    const firebaseConfig = {
+  apiKey: "AIzaSyBBhGPM46kUg1exY-000CttB8cjAegeCaQ",
+  authDomain: "guruvandan-d4dc0.firebaseapp.com",
+  projectId: "guruvandan-d4dc0",
+  storageBucket: "guruvandan-d4dc0.firebasestorage.app",
+  messagingSenderId: "547247846451",
+  appId: "1:547247846451:web:9bf630619fe89e5d21df46",
+  measurementId: "G-5DT4H1SK83"
+};
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    document.addEventListener('DOMContentLoaded', () => {
+      // Panel switching
+      const loginPanel = document.getElementById('login-panel');
+      const regPanel   = document.getElementById('register-panel');
+      document.getElementById('show-register').addEventListener('click', e => {
+        e.preventDefault();
+        loginPanel.classList.add('hidden');
+        regPanel.classList.remove('hidden');
+      });
+      document.getElementById('show-login').addEventListener('click', e => {
+        e.preventDefault();
+        regPanel.classList.add('hidden');
+        loginPanel.classList.remove('hidden');
+      });
+
+      // REGISTER
+      document.getElementById('register-form').addEventListener('submit', async e => {
+        e.preventDefault();
+        const name = document.getElementById('reg-name').value;
+        const email = document.getElementById('reg-email').value;
+        const password = document.getElementById('reg-password').value;
+        const role = document.getElementById('reg-role').value;
+        const dept = document.getElementById('reg-dept').value;
+
+        try {
+          const userCred = await createUserWithEmailAndPassword(auth, email, password);
+          const uid = userCred.user.uid;
+
+          // Save extra details in Firestore
+          await setDoc(doc(db, "users", uid), {
+            name,
+            email,
+            role,
+            dept
+          });
+
+          alert("✅ Registered successfully!");
+          regPanel.classList.add('hidden');
+          loginPanel.classList.remove('hidden');
+        } catch (err) {
+          alert("❌ Error: " + err.message);
+        }
+      });
+
+      // LOGIN
+      document.getElementById('login-form').addEventListener('submit', async e => {
+        e.preventDefault();
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        const role = document.getElementById('login-role').value;
+
+        try {
+          const userCred = await signInWithEmailAndPassword(auth, email, password);
+          const uid = userCred.user.uid;
+
+          // Check role from Firestore
+          const userDoc = await getDoc(doc(db, "users", uid));
+          if (userDoc.exists() && userDoc.data().role === role) {
+            alert("🎉 Login successful as " + role);
+            if (role === "admin") {
+              window.location.href = "admin.html";
+            } else if (role === "teacher") {
+              window.location.href = "teacher.html";
+            } else {
+              window.location.href = "student.html";
+            }
+          } else {
+            alert("⚠️ Role mismatch! Please check your login role.");
+          }
+        } catch (err) {
+          alert("❌ Error: " + err.message);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

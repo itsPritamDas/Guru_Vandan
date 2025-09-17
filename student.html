@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Student Dashboard — Student-Teacher Booking</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .chat-container {
+      display: flex;
+      height: 350px;
+      border: 1px solid #eee;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .chat-teachers {
+      width: 30%;
+      border-right: 1px solid #ccc;
+      overflow-y: auto;
+    }
+    .teacher-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #eee; }
+    .teacher-item.selected { background: #d0f0ff; }
+    .chat-messages {
+      flex: 1;
+      padding: 10px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    .message {
+      margin-bottom: 10px;
+      padding: 5px 10px;
+      border-radius: 15px;
+      max-width: 70%;
+      word-wrap: break-word;
+    }
+    .message.student { background: #007BFF; color: white; margin-left: auto; }
+    .message.teacher { background: #eee; color: black; margin-right: auto; }
+    .message.system { background: #ffc107; color: black; margin-left: auto; font-style: italic; }
+    .message-time { font-size: 0.7em; color: #666; margin-top: 2px; }
+    .message-form { display: flex; gap: 5px; margin-top: 5px; }
+    .message-form input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+
+    .list { max-height: 250px; overflow-y: auto; border: 1px solid #eee; padding: 5px; border-radius: 4px; margin-top: 10px; }
+    .appointment-form { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+    .appointment-form input, .appointment-form button { padding: 8px; border-radius: 4px; border: 1px solid #ccc; }
+    .appointment-form button { border: none; background: #28a745; color: white; cursor: pointer; }
+    .appointment-form button:hover { background: #218838; }
+  </style>
+</head>
+<body>
+<main class="container">
+  <header>
+    <h1>Student Dashboard</h1>
+    <div class="top-actions">
+      <span id="student-welcome"></span>
+      <button id="btn-logout">Logout</button>
+    </div>
+  </header>
+
+  <section class="grid">
+    <!-- Teacher Search and Appointments -->
+    <div class="card">
+      <h2>Find a Teacher</h2>
+      <div class="inline-form">
+        <input id="teacherSearch" type="text" placeholder="Search by name, department or subject">
+        <button id="btnSearch">Search</button>
+      </div>
+      <div id="teacherResults" class="list"></div>
+
+      <!-- Appointment Form -->
+      <div id="appointment-form-container" style="display:none;">
+        <h2>Book Appointment</h2>
+        <form id="appointment-form" class="appointment-form">
+          <input id="appointment-purpose" type="text" placeholder="Purpose" required />
+          <input id="appointment-date" type="date" required />
+          <input id="appointment-time" type="time" required />
+          <button type="submit">Book Appointment</button>
+        </form>
+      </div>
+
+      <h2>My Appointments</h2>
+      <div id="appointments-list" class="list"></div>
+    </div>
+
+    <!-- Chat Messages -->
+    <div class="card">
+      <h2>Messages</h2>
+      <div class="chat-container">
+        <div id="teachers-list" class="chat-teachers"></div>
+        <div class="chat-messages" id="messages-list"></div>
+      </div>
+      <div class="message-form">
+        <input id="messageText" type="text" placeholder="Type a message">
+        <button id="btnSendMessage">Send</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+import { getAuth, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+import { getFirestore, collection, addDoc, getDocs, query, where, doc, getDoc, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBBhGPM46kUg1exY-000CttB8cjAegeCaQ",
+  authDomain: "guruvandan-d4dc0.firebaseapp.com",
+  projectId: "guruvandan-d4dc0",
+  storageBucket: "guruvandan-d4dc0.firebasestorage.app",
+  messagingSenderId: "547247846451",
+  appId: "1:547247846451:web:9bf630619fe89e5d21df46",
+  measurementId: "G-5DT4H1SK83"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+let currentUser = null;
+let selectedTeacherUid = null;
+
+const welcome = document.getElementById("student-welcome");
+const teachersList = document.getElementById("teachers-list");
+const messagesList = document.getElementById("messages-list");
+const teacherResults = document.getElementById("teacherResults");
+
+onAuthStateChanged(auth, async (user) => {
+  if (!user) location.href = "index.html";
+  const userDoc = await getDoc(doc(db, "users", user.uid));
+  if (!userDoc.exists() || userDoc.data().role !== "student") {
+    alert("Access denied!");
+    location.href = "index.html";
+    return;
+  }
+  currentUser = { uid: user.uid, ...userDoc.data() };
+  welcome.textContent = `Hi, ${currentUser.name}`;
+  loadTeachers();
+  loadAppointments();
+});
+
+// Logout
+document.getElementById("btn-logout").addEventListener("click", () => signOut(auth));
+
+// Teacher search
+document.getElementById("btnSearch").addEventListener("click", async () => {
+  const keyword = document.getElementById("teacherSearch").value.toLowerCase();
+  teacherResults.innerHTML = "";
+  const qSnap = await getDocs(collection(db, "users"));
+  qSnap.forEach(docSnap => {
+    const t = docSnap.data();
+    if (t.role === "teacher" && 
+       (t.name.toLowerCase().includes(keyword) || 
+        (t.dept || "").toLowerCase().includes(keyword) || 
+        (t.subject || "").toLowerCase().includes(keyword))) {
+      const div = document.createElement("div");
+      div.className = "teacher-item";
+      div.dataset.uid = docSnap.id;
+      div.textContent = `${t.name} (${t.dept || ""}, ${t.subject || ""})`;
+      div.addEventListener("click", () => selectTeacherForChatAndAppointment(docSnap.id, t.name));
+      teacherResults.appendChild(div);
+    }
+  });
+});
+
+// Select teacher
+function selectTeacherForChatAndAppointment(uid, name) {
+  document.querySelectorAll(".teacher-item").forEach(e => e.classList.remove("selected"));
+  document.querySelectorAll(".teacher-item").forEach(e => {
+    if (e.dataset.uid === uid) e.classList.add("selected");
+  });
+  selectedTeacherUid = uid;
+  loadMessages();
+  document.getElementById("appointment-form-container").style.display = "block";
+}
+
+// Load appointments
+async function loadAppointments() {
+  const list = document.getElementById("appointments-list");
+  list.innerHTML = "";
+  const qSnap = await getDocs(query(collection(db, "appointments"), where("studentUid", "==", currentUser.uid), orderBy("timestamp", "desc")));
+  qSnap.forEach(docSnap => {
+    const a = docSnap.data();
+    const div = document.createElement("div");
+    div.textContent = `${a.date} ${a.time} — ${a.purpose} (Teacher: ${a.teacherName}) [${a.status || "pending"}]`;
+    list.appendChild(div);
+  });
+}
+
+// Load teachers for chat
+async function loadTeachers() {
+  teachersList.innerHTML = "";
+  const qSnap = await getDocs(collection(db, "users"));
+  qSnap.forEach(docSnap => {
+    const u = docSnap.data();
+    if (u.role === "teacher") {
+      const div = document.createElement("div");
+      div.className = "teacher-item";
+      div.dataset.uid = docSnap.id;
+      div.textContent = u.name;
+      div.addEventListener("click", () => selectTeacherForChatAndAppointment(docSnap.id, u.name));
+      teachersList.appendChild(div);
+    }
+  });
+}
+
+// Messaging
+async function loadMessages() {
+  if (!selectedTeacherUid) return;
+  messagesList.innerHTML = "";
+  const qSnap = await getDocs(query(collection(db, "messages"), orderBy("timestamp")));
+  qSnap.forEach(docSnap => {
+    const m = docSnap.data();
+    // Only show messages with selected teacher
+    if ((m.senderUid === selectedTeacherUid && m.recipients.includes(currentUser.uid)) ||
+        (m.senderUid === currentUser.uid && m.recipients.includes(selectedTeacherUid)) ||
+        (m.senderUid === "system" && m.recipients.includes(currentUser.uid) && m.teacherUid === selectedTeacherUid)) {
+      const div = document.createElement("div");
+      if (m.senderUid === "system") div.className = "message system";
+      else div.className = "message " + (m.senderUid === currentUser.uid ? "student" : "teacher");
+      const time = m.timestamp?.seconds ? new Date(m.timestamp.seconds * 1000).toLocaleString() : "";
+      div.innerHTML = `<div>${m.text}</div><div class="message-time">${time}</div>`;
+      messagesList.appendChild(div);
+    }
+  });
+  messagesList.scrollTop = messagesList.scrollHeight;
+}
+
+// Send message
+document.getElementById("btnSendMessage").addEventListener("click", async () => {
+  const text = document.getElementById("messageText").value.trim();
+  if (!selectedTeacherUid) return alert("Select a teacher first!");
+  if (!text) return alert("Message cannot be empty!");
+  await addDoc(collection(db, "messages"), {
+    senderUid: currentUser.uid,
+    senderName: currentUser.name,
+    recipients: [selectedTeacherUid],
+    text,
+    timestamp: serverTimestamp()
+  });
+  document.getElementById("messageText").value = "";
+  loadMessages();
+});
+
+// Book appointment
+document.getElementById("appointment-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!selectedTeacherUid) return alert("Select a teacher first!");
+  const purpose = document.getElementById("appointment-purpose").value.trim();
+  const date = document.getElementById("appointment-date").value;
+  const time = document.getElementById("appointment-time").value;
+  if (!purpose || !date || !time) return alert("All fields are required!");
+  const teacherDoc = await getDoc(doc(db, "users", selectedTeacherUid));
+  if (!teacherDoc.exists()) return alert("Teacher not found!");
+  await addDoc(collection(db, "appointments"), {
+    studentUid: currentUser.uid,
+    studentName: currentUser.name,
+    teacherUid: selectedTeacherUid,
+    teacherName: teacherDoc.data().name,
+    date,
+    time,
+    purpose,
+    status: "pending",
+    timestamp: serverTimestamp()
+  });
+  alert("Appointment booked successfully!");
+  document.getElementById("appointment-form").reset();
+  loadAppointments();
+});
+</script>
+</body>
+</html>

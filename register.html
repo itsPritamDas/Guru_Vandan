@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Student Registration — Student-Teacher Booking</title>
+  <style>
+    body { font-family: Arial; background: #f2f2f2; padding: 20px; }
+    .container { max-width: 400px; margin: auto; background: white; padding: 20px; border-radius: 8px; }
+    input, button { width: 100%; margin: 8px 0; padding: 8px; border-radius: 4px; border: 1px solid #ccc; }
+    button { background: #007BFF; color: white; border: none; cursor: pointer; }
+    button:hover { background: #0056b3; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Student Registration</h2>
+    <input type="text" id="name" placeholder="Name" required>
+    <input type="email" id="email" placeholder="Email" required>
+    <input type="password" id="password" placeholder="Password" required>
+    <button id="btnRegister">Register</button>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+    import { getAuth, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+    import { getFirestore, setDoc, doc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBBhGPM46kUg1exY-000CttB8cjAegeCaQ",
+      authDomain: "guruvandan-d4dc0.firebaseapp.com",
+      projectId: "guruvandan-d4dc0"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    document.getElementById("btnRegister").addEventListener("click", async () => {
+      const name = document.getElementById("name").value.trim();
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value.trim();
+
+      if (!name || !email || !password) return alert("All fields are required");
+
+      try {
+        // 1️⃣ Create auth user
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const uid = userCredential.user.uid;
+
+        // 2️⃣ Add user to Firestore with approved: false
+        await setDoc(doc(db, "users", uid), {
+          name,
+          email,
+          role: "student",
+          approved: false
+        });
+
+        alert("Registered successfully! Wait for admin approval.");
+        location.href = "index.html";
+      } catch (err) {
+        console.error("Error registering user:", err);
+        alert(err.message);
+      }
+    });
+  </script>
+</body>
+</html>
